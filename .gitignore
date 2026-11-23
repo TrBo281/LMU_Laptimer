@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+bridge/.venv/
+bridge/data/
+bridge/.deps.log
+bridge/.python-install.log
+bridge/.bridge.log
+.pytest_cache/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.build.log
+android/.wrapper.log
+android/.idea/
+*.iml
+*.apk
+*.aab
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Local-only state
+bridge/.tmp-smoke/
+android/.kotlin/
+.freebuff/
+bridge/.tmp-smoke.log

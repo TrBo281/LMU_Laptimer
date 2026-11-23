@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LMU Laptimer · Engineer</title>
+<style>
+:root{--bg:#0b0d0c;--panel:#151916;--line:#29312b;--text:#eef3ee;--dim:#8b9a8f;--lime:#b6ff3b;--cyan:#54d7ff;--warn:#ffb84d;--bad:#ff5d5d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 ui-monospace,Consolas,monospace}
+header{display:flex;gap:18px;align-items:center;padding:14px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0b0d0cee;backdrop-filter:blur(8px);z-index:2}
+h1{font-size:16px;margin:0;color:var(--lime)}.grow{flex:1}.dim{color:var(--dim)}.small{font-size:11px}
+.badge{padding:2px 8px;border:1px solid var(--line);border-radius:6px;font-size:11px;text-transform:uppercase}
+.flag-green{color:var(--lime)}.flag-yellow{color:var(--warn)}.flag-red{color:var(--bad)}.flag-blue{color:var(--cyan)}
+input{background:#0f1310;border:1px solid var(--line);color:var(--text);padding:6px 8px;border-radius:6px;font:inherit}
+button{background:var(--lime);color:#0b0d0c;border:0;border-radius:6px;padding:7px 11px;font-weight:700;cursor:pointer}
+main{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;padding:16px;max-width:1500px;margin:auto}
+@media(max-width:900px){main{grid-template-columns:1fr}header{flex-wrap:wrap}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h2{font-size:11px;letter-spacing:.12em;color:var(--dim);margin:0 0 10px;text-transform:uppercase}
+.row{display:flex;gap:18px;flex-wrap:wrap}.big{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.cyan{color:var(--cyan)}.lime{color:var(--lime)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+table{width:100%;border-collapse:collapse}td,th{padding:4px 3px;border-bottom:1px solid #202620;text-align:left;font-size:12px}th{color:var(--dim);font-weight:500}
+tr.player td{color:var(--lime);font-weight:700}
+.tyre{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.tyre div{border:1px solid var(--line);border-radius:6px;padding:8px}
+.tower{max-height:320px;overflow:auto}
+footer{padding:10px 22px;color:var(--dim);font-size:11px;border-top:1px solid var(--line)}
+#status{font-size:11px;color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <h1>LMU LAP TIMER · ENGINEER</h1>
+  <span id="track" class="dim">keine Verbindung</span>
+  <span id="flag" class="badge">–</span>
+  <span id="pos" class="badge">–</span>
+  <span class="grow"></span>
+  <input id="token" placeholder="Bridge-Token" size="24" autocomplete="off">
+  <button onclick="saveToken()">Verbinden</button>
+</header>
+<main>
+  <section class="card">
+    <h2>Stint & Strategie</h2>
+    <div class="row">
+      <div><div class="small dim">Rundenzeit</div><div id="laptime" class="big lime">–</div></div>
+      <div><div class="small dim">Stint</div><div id="stint" class="big">–</div></div>
+      <div><div class="small dim">Kraftstoff</div><div id="fuel" class="big cyan">–</div></div>
+      <div><div class="small dim">VE</div><div id="ve" class="big cyan">–</div></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><div class="small dim">Verbrauch/Runde</div><div id="consumption">–</div></div>
+      <div><div class="small dim">Reichweite</div><div id="range">–</div></div>
+      <div><div class="small dim">Gap vor/hinter</div><div id="gaps">–</div></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Reifen</h2>
+    <div id="tyres" class="tyre"></div>
+  </section>
+  <section class="card">
+    <h2>Timing Tower</h2>
+    <div class="tower"><table><thead><tr><th>P</th><th>Fahrzeug</th><th>Klasse</th><th>Letzte</th><th>Gap</th></tr></thead><tbody id="tower"></tbody></table></div>
+  </section>
+  <section class="card">
+    <h2>Session</h2>
+    <div class="row">
+      <div><div class="small dim">Strecke</div><div id="s-track">–</div></div>
+      <div><div class="small dim">Fahrzeug</div><div id="s-car">–</div></div>
+      <div><div class="small dim">Restzeit</div><div id="s-time">–</div></div>
+      <div><div class="small dim">Boxenstopps</div><div id="s-pits">–</div></div>
+    </div>
+    <div id="alerts" class="small" style="margin-top:12px"></div>
+  </section>
+</main>
+<footer><span id="status">Token eingeben und verbinden.</span> · <span id="health"></span></footer>
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let ws = null, timer = null, token = location.hash.startsWith('#t=') ? decodeURIComponent(location.hash.slice(3)) : (localStorage.getItem('lmu_token') || '');
+$('token').value = token;
+function saveToken(){ token = $('token').value.trim(); localStorage.setItem('lmu_token', token); if(location.hash) history.replaceState(null,'',location.pathname); connect(); }
+function api(path){ return fetch(path + (token ? (path.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token) : '')).then(r => r.ok ? r.json() : Promise.reject(r.status)); }
+function fmtS(v){ if(!v || v <= 0) return '–'; const m = Math.floor(v/60), s = (v%60).toFixed(3).padStart(6,'0'); return m ? m+':'+s : s; }
+function flagClass(f){ return 'flag-' + (f || 'none'); }
+function render(d){
+  $('track').textContent = d.track || 'keine Strecke';
+  const f = $('flag'); f.textContent = (d.flag || 'none').toUpperCase() + (d.flag_detail ? ' · '+d.flag_detail : ''); f.className = 'badge '+flagClass(d.flag);
+  $('pos').textContent = d.position ? 'P'+d.position+'/'+d.num_vehicles : '–';
+  $('laptime').textContent = fmtS(d.last_lap_s || d.best_lap_s);
+  $('stint').textContent = '#'+(d.stint_number||1)+' · '+(d.stint_laps||0)+' Rd';
+  $('fuel').textContent = (d.fuel_l||0).toFixed(1)+' L';
+  $('ve').textContent = ((d.virtual_energy||0)*100).toFixed(1)+' %';
+  $('consumption').textContent = (d.fuel_per_lap_stint||0).toFixed(2)+' L/Rd · VE '+((d.ve_per_lap_stint||0)*100).toFixed(1)+' %';
+  $('range').textContent = d.fuel_per_lap_stint > 0 ? (d.fuel_l/d.fuel_per_lap_stint).toFixed(1)+' Runden' : '–';
+  $('gaps').textContent = (d.gap_ahead_s ? '+'+d.gap_ahead_s.toFixed(1) : '–') + ' / ' + (d.gap_behind_s ? '-' + d.gap_behind_s.toFixed(1) : '–');
+  const tyres = d.tyres || [];
+  $('tyres').innerHTML = tyres.map((t,i) => '<div><b>'+['VL','VR','HL','HR'][i]+'</b> · '+esc(t.compound||'–')+'<br><span class="cyan">'+((t.temp_center_c||0)).toFixed(0)+'°C</span> · '+((t.pressure_kpa||0)/100).toFixed(1)+' bar<br><span class="dim small">Verschleiß '+((t.wear_raw||0)*100).toFixed(1)+' % · Bremse '+((t.brake_temp_c||0)).toFixed(0)+'°C</span></div>').join('') || '<div class="dim">keine Reifendaten</div>';
+  $('tower').innerHTML = (d.timing||[]).map(t => '<tr class="'+(t.is_player?'player':'')+'"><td>'+t.position+'</td><td>'+esc(t.name)+'</td><td>'+esc(t.car_class)+'</td><td>'+fmtS(t.last_lap_s)+'</td><td>'+fmtS(t.gap_s)+'</td></tr>').join('');
+  $('s-track').textContent = d.track || '–'; $('s-car').textContent = d.car || '–';
+  $('s-time').textContent = fmtS(d.session_time_remaining_s); $('s-pits').textContent = d.pit_stops || 0;
+  const alerts = [];
+  if (d.fuel_per_lap_stint > 0 && d.fuel_l/d.fuel_per_lap_stint < 3) alerts.push('Kraftstoff reicht < 3 Runden');
+  if (d.under_yellow) alerts.push('FCY/Gelb aktiv');
+  if ((d.penalties||0) > 0) alerts.push((d.penalties)+' Strafe(n)');
+  if (d.damage && d.damage.some(x => x > 0.1)) alerts.push('Schaden gemeldet');
+  $('alerts').innerHTML = alerts.length ? alerts.map(a => '<div class="warn">• '+esc(a)+'</div>').join('') : '<span class="dim">keine aktiven Alarme</span>';
+}
+async function diagnostics(){
+  try { const h = await api('/api/diagnostics'); $('health').textContent = 'Quelle '+h.source+' · '+(h.frames_received||0)+' Frames · letztes Paket '+(h.last_frame_age_s ?? '–')+' s · Capture '+esc(h.capture_file||'–'); } catch(e) { $('health').textContent = 'Diagnose nicht erreichbar'; }
+}
+function connect(){
+  if(ws){ try{ws.close()}catch(e){} }
+  if(timer) clearInterval(timer);
+  api('/api/live').then(d => { render(d); $('status').textContent='REST verbunden · warte auf WebSocket'; }).catch(e => $('status').textContent='Bridge nicht erreichbar ('+e+')');
+  diagnostics(); timer = setInterval(diagnostics, 5000);
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  const url = proto + location.host + '/ws/live' + (token ? '?token='+encodeURIComponent(token) : '');
+  ws = new WebSocket(url);
+  ws.onopen = () => $('status').textContent = 'Live verbunden · '+new Date().toLocaleTimeString();
+  ws.onmessage = ev => { try { render(JSON.parse(ev.data)); } catch(e){} };
+  ws.onclose = () => {
+    $('status').textContent = 'WebSocket getrennt · REST-Fallback';
+    if(timer) clearInterval(timer);
+    timer = setInterval(async () => { try { render(await api('/api/live')); } catch(e){} }, 1000);
+  };
+  ws.onerror = () => {};
+}
+if(token) connect(); else $('status').textContent = 'Token eingeben und verbinden.';
+</script>
+</body>
+</html>
